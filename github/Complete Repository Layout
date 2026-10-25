@@ -1,0 +1,10 @@
+nexus-pulse-matrix/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── src/
+│   └── App.jsx          <-- (Generated single-file React component)
+├── package.json
+├── schema.sql
+├── README.md
+└── .gitignore
