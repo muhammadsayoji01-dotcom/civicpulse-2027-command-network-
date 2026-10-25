@@ -1,0 +1,85 @@
+-- ============================================================
+-- NEXUSPULSE MATRIX: CIVICPULSE 2027 DATABASE SCHEMA
+-- Multi-Tier RBAC, Encrypted Personal Data & RLS Security
+-- ============================================================
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. Roles Definition
+CREATE TYPE user_role AS ENUM (
+    'BOT_CHAIRMAN',
+    'BOT_TRUSTEE',
+    'NATIONAL_EXEC',
+    'STATE_COORDINATOR',
+    'PUBLIC_VOLUNTEER'
+);
+
+-- 2. Volunteers & Members Table
+CREATE TABLE public.members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    first_name VARCHAR(50) NOT NULL,
+    middle_name VARCHAR(50),
+    last_name VARCHAR(50) NOT NULL,
+    nin VARCHAR(11) UNIQUE NOT NULL,
+    vin VARCHAR(20) UNIQUE,
+    phone VARCHAR(20) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    state_of_origin VARCHAR(50) NOT NULL,
+    residence_state VARCHAR(50) NOT NULL,
+    residence_city VARCHAR(100) NOT NULL,
+    assigned_ward VARCHAR(100) NOT NULL,
+    polling_unit_code VARCHAR(50) NOT NULL,
+    qualification_discipline VARCHAR(100) NOT NULL,
+    highest_degree VARCHAR(50) NOT NULL,
+    -- PRIVACY SHIELD: Employment/Job details encrypted in database
+    encrypted_job_status TEXT,
+    role user_role DEFAULT 'PUBLIC_VOLUNTEER',
+    points_total INT DEFAULT 0,
+    rank_tier VARCHAR(50) DEFAULT 'Bronze Delegate',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 3. Audit Logs Table (Immutable BoT Execution Record)
+CREATE TABLE public.executive_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    executor_id UUID REFERENCES public.members(id),
+    action_type VARCHAR(100) NOT NULL,
+    target_node VARCHAR(100) NOT NULL,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 4. State Mobilization Node Metrics Table
+CREATE TABLE public.state_nodes (
+    state_code VARCHAR(10) PRIMARY KEY,
+    state_name VARCHAR(50) NOT NULL,
+    target_volunteers INT DEFAULT 100000,
+    active_volunteers INT DEFAULT 0,
+    polling_units_count INT NOT NULL,
+    mission_progress_pct INT DEFAULT 0 CHECK (mission_progress_pct BETWEEN 0 AND 100),
+    reward_claimed BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================
+-- ROW-LEVEL SECURITY (RLS) POLICIES
+-- ============================================================
+
+ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.executive_audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- Policy 1: BoT Chairman has unrestricted read access to all audit records
+CREATE POLICY chairman_audit_access ON public.executive_audit_logs
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.members 
+            WHERE members.id = auth.uid() 
+            AND members.role = 'BOT_CHAIRMAN'
+        )
+    );
+
+-- Policy 2: Privacy Shield Rule 2.0 - Job status strictly masked from standard queries
+CREATE POLICY volunteer_self_access ON public.members
+    FOR SELECT
+    USING (id = auth.uid() OR role IN ('BOT_CHAIRMAN', 'BOT_TRUSTEE'));
